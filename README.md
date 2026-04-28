@@ -74,8 +74,8 @@ This project is licensed under the MIT License. See [LICENSE](/home/chips/Projec
 
 ## In Progress
 
-- [ ] packed-refs + branch brute-force -> more SHAs to dump
+- [x] packed-refs + branch brute-force -> more SHAs to dump
 - [ ] pack discovery (`info/packs`) -> get objects that 404 as loose
-- [ ] reflog (`logs/HEAD`) -> orphaned commits, deleted branches
+- [x] reflog (`logs/HEAD`) -> orphaned commits, deleted branches
 - [ ] submodules (`.gitmodules`) -> recursive dumps
 - [ ] LFS -> large assets

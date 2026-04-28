@@ -126,6 +126,39 @@ func parseCommit(data string) *Commit {
 	return commit
 }
 
+func parsePackedRefs(data string) []Ref {
+	var refs []Ref
+
+	for line := range strings.SplitSeq(data, "\n") {
+		if strings.HasPrefix(line, "#") || strings.TrimSpace(line) == "" {
+			continue
+		}
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		refs = append(refs, Ref{
+			SHA:  parts[0],
+			Name: strings.TrimSpace(parts[1]),
+		})
+	}
+	return refs
+}
+
+func parseReflog(data string) []string {
+	var refs []string
+
+	for line := range strings.SplitSeq(data, "\n") {
+		parts := strings.Split(line, " ")
+		if len(parts) < 2 || parts[1] == "0000000000000000000000000000000000000000" {
+			continue
+		}
+		refs = append(refs, parts[1])
+	}
+	return refs
+}
+
 func shaToPath(sha string) string {
 	return fmt.Sprintf("%s/%s", sha[:2], sha[2:])
 }

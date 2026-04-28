@@ -31,3 +31,8 @@ type IndexEntry struct {
 	SHA  string
 	Path string
 }
+
+type Ref struct {
+	Name string // refs/remote/origin/main OR refs/tags/v0.9.8
+	SHA  string
+}
