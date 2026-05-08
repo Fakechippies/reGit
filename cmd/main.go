@@ -14,9 +14,10 @@ func Execute() error {
 
 func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "reGit <url> <dir>",
-		Short: "Dump files from an exposed .git directory",
-		Args:  cobra.ExactArgs(2),
+		Use:          "reGit <url> <dir>",
+		Short:        "Dump files from an exposed .git directory",
+		Args:         cobra.ExactArgs(2),
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			baseURL := strings.TrimSuffix(args[0], "/")
 			outputDir := args[1]
@@ -26,7 +27,7 @@ func newRootCmd() *cobra.Command {
 				return err
 			}
 
-			return handler.Run()
+			return runWithProgress(handler)
 		},
 	}
 

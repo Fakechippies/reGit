@@ -18,6 +18,10 @@ func NewHandler(baseURL, baseDir string) (*Handler, error) {
 }
 
 func (h *Handler) Run() error {
+	return h.RunWithProgress(nil)
+}
+
+func (h *Handler) RunWithProgress(report ProgressReporter) error {
 	if err := h.dumper.testConn(); err != nil {
 		return err
 	}
@@ -42,7 +46,12 @@ func (h *Handler) Run() error {
 		return err
 	}
 
-	for _, entry := range entries {
+	total := len(entries)
+	h.reportProgress(report, total, 0, "")
+
+	for i, entry := range entries {
+		h.reportProgress(report, total, i, entry.Path)
+
 		data, err := h.dumper.fetchBlob(entry.SHA)
 		if err != nil {
 			return fmt.Errorf("fetch blob %s (%s): %w", entry.Path, entry.SHA, err)
@@ -51,9 +60,23 @@ func (h *Handler) Run() error {
 		if err := h.writer.Write(entry.Path, data); err != nil {
 			return fmt.Errorf("write %s: %w", entry.Path, err)
 		}
+
+		h.reportProgress(report, total, i+1, entry.Path)
 	}
 
 	return nil
+}
+
+func (h *Handler) reportProgress(report ProgressReporter, total, downloaded int, current string) {
+	if report == nil {
+		return
+	}
+
+	report(ProgressEvent{
+		Total:      total,
+		Downloaded: downloaded,
+		Current:    current,
+	})
 }
 
 func (h *Handler) resolveLatestCommit(head string) (string, error) {

@@ -11,6 +11,14 @@ type Handler struct {
 	writer *Writer
 }
 
+type ProgressEvent struct {
+	Total      int
+	Downloaded int
+	Current    string
+}
+
+type ProgressReporter func(ProgressEvent)
+
 type Writer struct {
 	BaseDir string
 	sync.Mutex

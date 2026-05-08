@@ -19,6 +19,10 @@ func (d *Dumper) testConn() error {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status %d for %s", resp.StatusCode, d.BaseURL)
+	}
+
 	return nil
 }
 
@@ -75,6 +79,10 @@ func (d *Dumper) fetchIndex() ([]IndexEntry, error) {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status %d for %s", resp.StatusCode, ".git/index")
+	}
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
@@ -84,11 +92,16 @@ func (d *Dumper) fetchIndex() ([]IndexEntry, error) {
 }
 
 func (d *Dumper) fetchObject(sha string) ([]byte, error) {
-	resp, err := http.Get(fmt.Sprintf("%s/.git/objects/%s", d.BaseURL, shaToPath(sha)))
+	path := fmt.Sprintf(".git/objects/%s", shaToPath(sha))
+	resp, err := http.Get(fmt.Sprintf("%s/%s", d.BaseURL, path))
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status %d for %s", resp.StatusCode, path)
+	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
