@@ -84,4 +84,4 @@ reGit http://target/.git dump-output
 
 ## License
 
-MIT License. See [LICENSE](/home/chips/Projects/reGit/LICENSE).
+MIT License. See [LICENSE](https://github.com/Fakechippies/reGit/blob/main/LICENSE).
