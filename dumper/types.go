@@ -3,7 +3,9 @@ package dumper
 import "sync"
 
 type Dumper struct {
-	BaseURL string
+	BaseURL       string
+	packsLoaded   bool
+	packedObjects map[string][]byte
 }
 
 type Handler struct {

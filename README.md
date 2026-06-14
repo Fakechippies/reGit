@@ -2,28 +2,29 @@
 
 `reGit` is a small Go CLI for reconstructing a working tree from an exposed `.git` directory on a web server. It fetches the remote repository index, downloads referenced Git objects, and writes the recovered files into a local directory.
 
-This project is inspired by [`arthaud/git-dumper`](https://github.com/arthaud/git-dumper), a more complete repository dumping tool. `reGit` focuses on a smaller Go-based workflow centered on recovering files from `.git/index` and loose objects.
+This project is inspired by [`arthaud/git-dumper`](https://github.com/arthaud/git-dumper), a more complete repository dumping tool.
 
 ## Features
 
-- Simple CLI with two required arguments: target URL and output directory
-- Rebuilds files directly from `.git/index` and the referenced blob objects
-- Preserves nested paths when writing recovered files
-- Single static binary workflow with minimal runtime overhead
+- Recovers files from `.git/index` (loose and packed objects)
+- Walks commit trees to discover files not in the index
+- Pack-file support with full delta resolution (OFsDelta and REF_Delta)
+- Branch brute-force (`main`, `master`, `dev`, `develop`, `staging`, etc.)
+- Packed-refs parsing
+- Reflog parsing (`logs/HEAD`)
+- Progress TUI (bubbletea) in terminals
+- Single static binary, no runtime dependencies
 
 ## Requirements
 
 - Go `1.26.1` or newer to build from source
 - Network access to the target web server
-- A target that exposes `.git/index` and the corresponding object files under `.git/objects/`
 
 ## Build
 
 ```bash
 go build -o reGit .
 ```
-
-You can also run it without building an explicit binary:
 
 ```bash
 go run . <url> <output-dir>
@@ -32,50 +33,55 @@ go run . <url> <output-dir>
 ## Usage
 
 ```bash
-reGit <url> <output-dir>
-```
-
-Example:
-
-```bash
-reGit http://localhost:8000/ dump-1
+reGit http://target/.git dump-output
 ```
 
 ## How It Works
 
-`reGit` performs the following steps:
+1. Tests connectivity to the target.
+2. Reads `.git/HEAD` and resolves the current branch/commit.
+3. Downloads `.git/index` and extracts file paths + blob SHAs.
+4. Walks the commit tree to discover additional files not in the index.
+5. Gathers more SHA seeds from packed-refs, reflogs, branch brute-force, and pack indexes.
+6. Fetches loose objects from `.git/objects/`; falls back to pack files on 404.
+7. Decompresses (or delta-resolves) each object and writes the recovered file.
 
-1. Connects to the target URL and confirms it is reachable.
-2. Reads `.git/HEAD` and the current branch reference.
-3. Downloads `.git/index` from the target.
-4. Extracts file paths and blob SHAs from the index.
-5. Fetches the corresponding objects from `.git/objects/`.
-6. Decompresses each object and writes the recovered file into the output directory.
+## Comparison to git-dumper
 
-## Limitations
+`git-dumper` (Python) remains more feature-complete:
 
-- The current implementation reconstructs files from the Git index; it does not rebuild history, branches, tags, or a full repository structure.
-- Success depends on the remote server exposing both `.git/index` and the required object files.
-- If objects are missing or access is blocked, recovery will be partial or fail.
-
-## Inspiration
-
-If you need broader recovery coverage, including additional ref discovery and full repository reconstruction strategies, see [`git-dumper`](https://github.com/arthaud/git-dumper).
-
-## Run
-
-```bash
-reGit http://IP:PORT DIR
-```
-
-## License
-
-This project is licensed under the MIT License. See [LICENSE](/home/chips/Projects/reGit/LICENSE).
+| Feature | reGit | git-dumper |
+|---|---|---|
+| Index recovery | ✓ | ✓ |
+| Loose objects | ✓ | ✓ |
+| Pack files (idx + delta resolution) | ✓ | ✓ (via dulwich) |
+| Branch brute-force | ✓ | ✓ |
+| Packed-refs | ✓ | ✓ |
+| Reflog | ✓ | ✓ |
+| Commit tree walking | ✓ | ✓ |
+| Recursive object discovery | ✓ | ✓ |
+| Directory listing (recursive wget) | ✗ | ✓ |
+| Concurrent downloads | ✗ | ✓ (multiprocessing) |
+| User-specified branches | ✗ | ✓ (`-b` flag) |
+| Proxy support | ✗ | ✓ |
+| Client certificates | ✗ | ✓ |
+| Retry / timeout config | ✗ | ✓ |
+| Custom headers / user-agent | ✗ | ✓ |
+| Sanitize `.git/config` | ✗ | ✓ |
+| `git checkout .` final step | ✗ | ✓ |
+| Tag object support | ✗ | ✓ |
+| FETCH_HEAD / ORIG_HEAD / stash / wip refs | ✗ | ✓ |
+| Progress TUI | ✓ | ✗ |
+| Single static binary | ✓ | ✗ (requires Python + deps) |
 
 ## In Progress
 
 - [x] packed-refs + branch brute-force -> more SHAs to dump
-- [ ] pack discovery (`info/packs`) -> get objects that 404 as loose
+- [x] pack discovery (`info/packs`) -> get objects that 404 as loose
 - [x] reflog (`logs/HEAD`) -> orphaned commits, deleted branches
 - [ ] submodules (`.gitmodules`) -> recursive dumps
 - [ ] LFS -> large assets
+
+## License
+
+MIT License. See [LICENSE](/home/chips/Projects/reGit/LICENSE).

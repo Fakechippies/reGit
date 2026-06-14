@@ -92,7 +92,33 @@ func (d *Dumper) fetchIndex() ([]IndexEntry, error) {
 }
 
 func (d *Dumper) fetchObject(sha string) ([]byte, error) {
+	if d.packsLoaded {
+		if object, ok := d.packedObjects[sha]; ok {
+			return object, nil
+		}
+	}
+
 	path := fmt.Sprintf(".git/objects/%s", shaToPath(sha))
+	resp, err := http.Get(fmt.Sprintf("%s/%s", d.BaseURL, path))
+	if err != nil {
+		return d.fetchPackedObject(sha, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return d.fetchPackedObject(sha, fmt.Errorf("unexpected status %d for %s", resp.StatusCode, path))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return d.fetchPackedObject(sha, err)
+	}
+
+	return decodeObject(body)
+}
+
+func (d *Dumper) fetchPack(pack string) ([]byte, error) {
+	path := fmt.Sprintf(".git/objects/pack/%s", pack)
 	resp, err := http.Get(fmt.Sprintf("%s/%s", d.BaseURL, path))
 	if err != nil {
 		return nil, err
@@ -103,10 +129,25 @@ func (d *Dumper) fetchObject(sha string) ([]byte, error) {
 		return nil, fmt.Errorf("unexpected status %d for %s", resp.StatusCode, path)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	return io.ReadAll(resp.Body)
+}
+
+func (d *Dumper) fetchIdx(idx string) ([]string, error) {
+	path := fmt.Sprintf(".git/objects/pack/%s", idx)
+	resp, err := http.Get(fmt.Sprintf("%s/%s", d.BaseURL, path))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status %d for %s", resp.StatusCode, path)
+	}
+
+	idxData, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 
-	return decodeObject(body)
+	return parseIdx(idxData), nil
 }

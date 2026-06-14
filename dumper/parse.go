@@ -159,6 +159,18 @@ func parseReflog(data string) []string {
 	return refs
 }
 
+func parseIdx(data []byte) []string {
+	b := data[1032:]
+	count := int(binary.BigEndian.Uint32(data[1028:1032]))
+
+	shas := make([]string, count)
+	for i := 0; i < count; i++ {
+		sha := hex.EncodeToString(b[i*20 : i*20+20])
+		shas[i] = sha
+	}
+	return shas
+}
+
 func shaToPath(sha string) string {
 	return fmt.Sprintf("%s/%s", sha[:2], sha[2:])
 }

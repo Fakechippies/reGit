@@ -1,7 +1,9 @@
 package dumper
 
 import (
+	"bytes"
 	"fmt"
+	"path"
 	"strings"
 )
 
@@ -46,7 +48,11 @@ func (h *Handler) RunWithProgress(report ProgressReporter) error {
 		return err
 	}
 
+	entries = mergeEntries(entries, h.fetchDiscoveredEntries(latestCommit))
+
 	total := len(entries)
+	recovered := 0
+	failed := 0
 	h.reportProgress(report, total, 0, "")
 
 	for i, entry := range entries {
@@ -54,17 +60,182 @@ func (h *Handler) RunWithProgress(report ProgressReporter) error {
 
 		data, err := h.dumper.fetchBlob(entry.SHA)
 		if err != nil {
-			return fmt.Errorf("fetch blob %s (%s): %w", entry.Path, entry.SHA, err)
+			failed++
+			h.reportProgress(report, total, i+1, entry.Path)
+			continue
 		}
 
 		if err := h.writer.Write(entry.Path, data); err != nil {
-			return fmt.Errorf("write %s: %w", entry.Path, err)
+			failed++
+			h.reportProgress(report, total, i+1, entry.Path)
+			continue
 		}
 
+		recovered++
 		h.reportProgress(report, total, i+1, entry.Path)
 	}
 
+	if recovered == 0 && failed > 0 {
+		return fmt.Errorf("failed to recover any files")
+	}
+
 	return nil
+}
+
+func (h *Handler) fetchDiscoveredEntries(latestCommit string) []IndexEntry {
+	seeds := h.discoveredSHAs(latestCommit)
+	seenObjects := map[string]struct{}{}
+	seenEntries := map[string]struct{}{}
+	var entries []IndexEntry
+
+	type queuedObject struct {
+		SHA      string
+		Path     string
+		Rooted   bool
+		Writable bool
+	}
+
+	queue := make([]queuedObject, 0, len(seeds))
+	for i, sha := range seeds {
+		queue = append(queue, queuedObject{
+			SHA:      sha,
+			Writable: i == 0,
+		})
+	}
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		if !validSHA(current.SHA) {
+			continue
+		}
+		if _, ok := seenObjects[current.SHA]; ok {
+			continue
+		}
+		seenObjects[current.SHA] = struct{}{}
+
+		object, err := h.dumper.fetchObject(current.SHA)
+		if err != nil {
+			continue
+		}
+
+		switch objectType(object) {
+		case "commit":
+			commit := parseCommit(string(object))
+			if commit == nil {
+				continue
+			}
+			queue = append(queue, queuedObject{
+				SHA:      commit.Tree,
+				Rooted:   true,
+				Writable: current.Writable,
+			})
+			for _, parent := range commit.Parents {
+				queue = append(queue, queuedObject{SHA: parent})
+			}
+
+		case "tree":
+			if !current.Rooted || !current.Writable {
+				continue
+			}
+			for _, entry := range parseTree(object) {
+				entryPath := path.Join(current.Path, entry.Name)
+				if strings.HasPrefix(entry.Mode, "04") {
+					queue = append(queue, queuedObject{
+						SHA:      entry.SHA,
+						Path:     entryPath,
+						Rooted:   true,
+						Writable: true,
+					})
+					continue
+				}
+
+				key := entryPath + "\x00" + entry.SHA
+				if _, ok := seenEntries[key]; ok {
+					continue
+				}
+				seenEntries[key] = struct{}{}
+				entries = append(entries, IndexEntry{
+					SHA:  entry.SHA,
+					Path: entryPath,
+				})
+			}
+		}
+	}
+
+	return entries
+}
+
+func (h *Handler) discoveredSHAs(latestCommit string) []string {
+	seen := map[string]struct{}{}
+	var shas []string
+
+	add := func(sha string) {
+		sha = strings.TrimSpace(sha)
+		if !validSHA(sha) {
+			return
+		}
+		if _, ok := seen[sha]; ok {
+			return
+		}
+		seen[sha] = struct{}{}
+		shas = append(shas, sha)
+	}
+
+	add(latestCommit)
+
+	for _, ref := range h.dumper.bruteForceBranches() {
+		add(ref.SHA)
+	}
+
+	if refs, err := h.dumper.fetchPackedRefs(); err == nil {
+		for _, ref := range refs {
+			add(ref.SHA)
+		}
+	}
+
+	if refs, err := h.dumper.fetchReflogs(); err == nil {
+		for _, ref := range refs {
+			add(ref)
+		}
+	}
+
+	if packSHAs, err := h.dumper.fetchPacks(); err == nil {
+		for _, sha := range packSHAs {
+			add(sha)
+		}
+	}
+
+	return shas
+}
+
+func mergeEntries(base, extra []IndexEntry) []IndexEntry {
+	seenPaths := make(map[string]struct{}, len(base))
+	for _, entry := range base {
+		seenPaths[entry.Path] = struct{}{}
+	}
+
+	for _, entry := range extra {
+		if _, ok := seenPaths[entry.Path]; ok {
+			continue
+		}
+		seenPaths[entry.Path] = struct{}{}
+		base = append(base, entry)
+	}
+
+	return base
+}
+
+func objectType(data []byte) string {
+	nullIdx := bytes.IndexByte(data, 0)
+	if nullIdx == -1 {
+		return ""
+	}
+
+	header := string(data[:nullIdx])
+	objectType, _, _ := strings.Cut(header, " ")
+	return objectType
 }
 
 func (h *Handler) reportProgress(report ProgressReporter, total, downloaded int, current string) {
