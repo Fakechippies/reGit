@@ -7,8 +7,11 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 )
+
+var shaPattern = regexp.MustCompile(`\b[0-9a-f]{40}\b`)
 
 func decodeObject(body []byte) ([]byte, error) {
 	bodyBytes := bytes.NewReader(body)
@@ -157,6 +160,20 @@ func parseReflog(data string) []string {
 		refs = append(refs, parts[1])
 	}
 	return refs
+}
+
+func parseSHAs(data string) []string {
+	return shaPattern.FindAllString(data, -1)
+}
+
+func parseRefs(data string) []string {
+	var shas []string
+	for _, ref := range parsePackedRefs(data) {
+		if validSHA(ref.SHA) {
+			shas = append(shas, ref.SHA)
+		}
+	}
+	return shas
 }
 
 func parseIdx(data []byte) []string {

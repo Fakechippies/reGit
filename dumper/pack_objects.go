@@ -38,10 +38,12 @@ func (d *Dumper) fetchPackedObject(sha string, looseErr error) ([]byte, error) {
 }
 
 func (d *Dumper) loadPacks() error {
+	d.packsMu.Lock()
+	defer d.packsMu.Unlock()
+
 	if d.packsLoaded {
 		return nil
 	}
-	d.packsLoaded = true
 	d.packedObjects = map[string][]byte{}
 
 	packs, err := d.fetchPackNames()
@@ -65,6 +67,7 @@ func (d *Dumper) loadPacks() error {
 		}
 	}
 
+	d.packsLoaded = true
 	return nil
 }
 

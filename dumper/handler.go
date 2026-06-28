@@ -5,16 +5,21 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"sync"
 )
 
 func NewHandler(baseURL, baseDir string) (*Handler, error) {
+	return NewHandlerWithOptions(baseURL, baseDir, Options{})
+}
+
+func NewHandlerWithOptions(baseURL, baseDir string, options Options) (*Handler, error) {
 	writer, err := newWriter(baseDir)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Handler{
-		dumper: New(baseURL),
+		dumper: NewWithOptions(baseURL, options),
 		writer: writer,
 	}, nil
 }
@@ -53,33 +58,75 @@ func (h *Handler) RunWithProgress(report ProgressReporter) error {
 	total := len(entries)
 	recovered := 0
 	failed := 0
+	completed := 0
 	h.reportProgress(report, total, 0, "")
 
-	for i, entry := range entries {
-		h.reportProgress(report, total, i, entry.Path)
+	type result struct {
+		path string
+		ok   bool
+	}
 
-		data, err := h.dumper.fetchBlob(entry.SHA)
-		if err != nil {
-			failed++
-			h.reportProgress(report, total, i+1, entry.Path)
-			continue
+	jobs := h.dumper.options.Jobs
+	work := make(chan IndexEntry)
+	results := make(chan result)
+	var workers sync.WaitGroup
+
+	for range jobs {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for entry := range work {
+				data, err := h.dumper.fetchBlob(entry.SHA)
+				if err != nil {
+					results <- result{path: entry.Path}
+					continue
+				}
+
+				if err := h.writer.Write(entry.Path, data); err != nil {
+					results <- result{path: entry.Path}
+					continue
+				}
+
+				results <- result{path: entry.Path, ok: true}
+			}
+		}()
+	}
+
+	go func() {
+		for _, entry := range entries {
+			work <- entry
 		}
+		close(work)
+		workers.Wait()
+		close(results)
+	}()
 
-		if err := h.writer.Write(entry.Path, data); err != nil {
+	for res := range results {
+		completed++
+		if res.ok {
+			recovered++
+		} else {
 			failed++
-			h.reportProgress(report, total, i+1, entry.Path)
-			continue
 		}
-
-		recovered++
-		h.reportProgress(report, total, i+1, entry.Path)
+		h.reportProgress(report, total, completed, res.path)
 	}
 
 	if recovered == 0 && failed > 0 {
 		return fmt.Errorf("failed to recover any files")
 	}
 
+	h.writeSanitizedConfig()
+
 	return nil
+}
+
+func (h *Handler) writeSanitizedConfig() {
+	data, err := h.dumper.fetch(".git/config")
+	if err != nil {
+		return
+	}
+
+	_ = h.writer.Write(".git/config", []byte(sanitizeGitConfig(data)))
 }
 
 func (h *Handler) fetchDiscoveredEntries(latestCommit string) []IndexEntry {
@@ -199,6 +246,10 @@ func (h *Handler) discoveredSHAs(latestCommit string) []string {
 		for _, ref := range refs {
 			add(ref)
 		}
+	}
+
+	for _, sha := range h.dumper.fetchExtraSHAs() {
+		add(sha)
 	}
 
 	if packSHAs, err := h.dumper.fetchPacks(); err == nil {

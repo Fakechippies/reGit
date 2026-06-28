@@ -1,11 +1,34 @@
 package dumper
 
-import "sync"
+import (
+	"net/http"
+	"sync"
+	"time"
+)
+
+const (
+	defaultJobs    = 10
+	defaultRetries = 3
+	defaultTimeout = 3 * time.Second
+)
+
+type Options struct {
+	Branches  []string
+	Headers   map[string]string
+	UserAgent string
+	Proxy     string
+	Jobs      int
+	Retries   int
+	Timeout   time.Duration
+}
 
 type Dumper struct {
 	BaseURL       string
+	client        *http.Client
+	options       Options
 	packsLoaded   bool
 	packedObjects map[string][]byte
+	packsMu       sync.Mutex
 }
 
 type Handler struct {
